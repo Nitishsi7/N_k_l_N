@@ -18,7 +18,10 @@ import cloudscraper
    import os
    from watermark_utils import WatermarkProcessor
    from bot_config import BotConfig
-   
+
+   watermarker = WatermarkProcessor()
+   config = BotConfig()
+  
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
 from base64 import b64encode, b64decode
