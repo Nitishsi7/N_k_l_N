@@ -65,6 +65,146 @@ CHANNEL_OWNERS = {}
 CHANNELS = os.environ.get('CHANNELS', '').split(',')
 CHANNELS_LIST = [int(channel_id) for channel_id in CHANNELS if channel_id.isdigit()]
 
+# main.py
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, MessageHandler, Filters
+import os
+from watermark_utils import WatermarkProcessor
+from bot_config import BotConfig
+import logging
+
+# Initialize components
+watermarker = WatermarkProcessor()
+config = BotConfig()
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+
+def start(update: Update, context):
+    """Send welcome message with watermark status"""
+    status = config.get_watermark_status()
+    text = f"Welcome to the File Bot!\n\nCurrent watermark status: {'ON' if status['enabled'] else 'OFF'}"
+    update.message.reply_text(text, reply_markup=get_main_keyboard())
+
+def get_main_keyboard():
+    """Create main inline keyboard"""
+    keyboard = [
+        [InlineKeyboardButton("Toggle Watermark", callback_data='toggle_watermark')],
+        [InlineKeyboardButton("Watermark Settings", callback_data='watermark_settings')],
+        [InlineKeyboardButton("Help", callback_data='help')]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def get_settings_keyboard():
+    """Create settings inline keyboard"""
+    status = config.get_watermark_status()
+    keyboard = [
+        [InlineKeyboardButton(f"Text: {status['text']}", callback_data='set_text')],
+        [InlineKeyboardButton(f"Position: {status['position']}", callback_data='set_position')],
+        [InlineKeyboardButton(f"Opacity: {status['opacity']}", callback_data='set_opacity')],
+        [InlineKeyboardButton("Back to Main", callback_data='main_menu')]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def handle_document(update: Update, context):
+    """Process uploaded files"""
+    file = update.message.document
+    file_extension = os.path.splitext(file.file_name)[1].lower()
+
+    # Check file size
+    if file.file_size > config.config['max_file_size']:
+        update.message.reply_text("File size exceeds maximum limit (50MB)")
+        return
+
+    # Download file
+    with tempfile.NamedTemporaryFile(suffix=file_extension) as temp_file:
+        file.download(temp_file.name)
+        
+        try:
+            # Process based on file type
+            output_file = f"processed_{file.file_name}"
+            
+            if file_extension in ['.mp4', '.mov', '.avi'] and config.get_watermark_status()['enabled']:
+                # Process video
+                watermark_settings = config.get_watermark_status()
+                watermarker.apply_video_watermark(
+                    temp_file.name, output_file,
+                    watermark_settings['text'],
+                    watermark_settings['position'],
+                    watermark_settings['opacity'],
+                    watermark_settings['font_size'],
+                    watermark_settings['color']
+                )
+                update.message.reply_document(document=open(output_file, 'rb'))
+                os.remove(output_file)
+                
+            elif file_extension == '.pdf' and config.get_watermark_status()['enabled']:
+                # Process PDF
+                watermark_settings = config.get_watermark_status()
+                watermarker.apply_pdf_watermark(
+                    temp_file.name, output_file,
+                    watermark_settings['text'],
+                    watermark_settings['pdf_opacity'],
+                    watermark_settings['pdf_angle'],
+                    watermark_settings['pdf_font_size']
+                )
+                update.message.reply_document(document=open(output_file, 'rb'))
+                os.remove(output_file)
+                
+            else:
+                # Send file as-is if watermark is off or not supported format
+                update.message.reply_document(document=open(temp_file.name, 'rb'))
+                
+        except Exception as e:
+            logging.error(f"Error processing file: {e}")
+            update.message.reply_text("Failed to process file. Please try again.")
+        finally:
+            if os.path.exists(output_file):
+                os.remove(output_file)
+
+def button_callback(update: Update, context):
+    """Handle inline button presses"""
+    query = update.callback_query
+    query.answer()
+
+    if query.data == 'toggle_watermark':
+        new_state = config.toggle_watermark()
+        query.edit_message_text(
+            text=f"Watermark is now {'ENABLED' if new_state else 'DISABLED'}",
+            reply_markup=get_main_keyboard()
+        )
+    elif query.data == 'watermark_settings':
+        query.edit_message_text(
+            text="Watermark Settings",
+            reply_markup=get_settings_keyboard()
+        )
+    elif query.data == 'main_menu':
+        query.edit_message_text(
+            text="Main Menu",
+            reply_markup=get_main_keyboard()
+        )
+    # Add more handlers for specific settings
+
+def error(update: Update, context):
+    """Log errors"""
+    logging.warning(f'Update {update} caused error {context.error}')
+
+def main():
+    # Initialize Telegram bot
+    updater = Updater("YOUR_TELEGRAM_BOT_TOKEN", use_context=True)
+    dp = updater.dispatcher
+
+    # Add handlers
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(MessageHandler(Filters.document, handle_document))
+    dp.add_handler(CallbackQueryHandler(button_callback))
+    dp.add_error_handler(error)
+
+    # Start bot
+    updater.start_polling()
+    updater.idle()
+
+if __name__ == '__main__':
+    main()
+
 cookies_file_path = os.getenv("cookies_file_path", "youtube_cookies.txt")
 
 api_url = "http://master-api-v3.vercel.app/"
