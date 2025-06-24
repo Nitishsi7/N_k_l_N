@@ -13,6 +13,12 @@ import urllib.parse
 import yt_dlp
 import tgcrypto
 import cloudscraper
+   from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+   from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, MessageHandler, Filters
+   import os
+   from watermark_utils import WatermarkProcessor
+   from bot_config import BotConfig
+   
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
 from base64 import b64encode, b64decode
